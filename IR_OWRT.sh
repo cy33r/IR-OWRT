@@ -1,7 +1,7 @@
 #!/bin/sh
 
 # ==============================================================================
-#  VIP3R OPENWRT MASTER SCRIPT - FIXED & OPTIMIZED
+#  VIP3R OPENWRT MASTER SCRIPT - FIXED & STABLE
 # ==============================================================================
 
 # --- COLORS ---
@@ -60,7 +60,7 @@ get_sys_info() {
     USED_RAM=$((USED_RAM_KB / 1024))
     FREE_RAM=$((FREE_RAM_KB / 1024))
 
-    # STORAGE
+    # STORAGE (OVERLAY)
     if df -h /overlay >/dev/null 2>&1; then
         TARGET_DISK="/overlay"
     else
@@ -70,6 +70,10 @@ get_sys_info() {
     DISK_TOTAL=$(df -h $TARGET_DISK | awk 'NR==2 {print $2}')
     DISK_USED=$(df -h $TARGET_DISK | awk 'NR==2 {print $3}')
     DISK_FREE=$(df -h $TARGET_DISK | awk 'NR==2 {print $4}')
+
+    # TEMP STORAGE (RAM DISK)
+    TEMP_TOTAL=$(df -h /tmp | awk 'NR==2 {print $2}')
+    TEMP_FREE=$(df -h /tmp | awk 'NR==2 {print $4}')
 
     # DNS CHECK
     DNS_INFO=$(grep "nameserver" /tmp/resolv.conf.d/resolv.conf.auto 2>/dev/null | awk '{print $2}' | xargs)
@@ -133,10 +137,11 @@ get_core_arch() {
 prepare_environment() {
     mkdir -p "$TEMP_DIR"
     rm -rf "$TEMP_DIR/*"
+    echo -e "${YELLOW}>>> TEMP ENVIRONMENT PREPARED IN $TEMP_DIR${NC}"
 }
 
 stop_passwall() {
-    echo -e "${BLUE}>>> STOPPING PASSWALL SERVICES TO PREVENT CRASHES...${NC}"
+    echo -e "${BLUE}>>> STOPPING PASSWALL SERVICES...${NC}"
     /etc/init.d/passwall2 stop >/dev/null 2>&1
     /etc/init.d/passwall stop >/dev/null 2>&1
 }
@@ -166,7 +171,6 @@ pause_script() {
 #  4. UPDATE FUNCTIONS
 # ==============================================================================
 
-# --- XRAY UPDATE ---
 update_xray() {
     prepare_environment
     echo -e "${YELLOW}>>> STARTING XRAY UPDATE CHECK...${NC}"
@@ -181,10 +185,11 @@ update_xray() {
     fi
     
     echo -e "${BLUE}>>> DOWNLOADING: $DOWNLOAD_URL${NC}"
+    echo -e "${BLUE}>>> SAVING TO TEMP SPACE (RAM)...${NC}"
     curl -L -o "$TEMP_DIR/xray.zip" "$DOWNLOAD_URL"
     
     if [ ! -s "$TEMP_DIR/xray.zip" ]; then
-        echo -e "${RED}>>> ERROR: DOWNLOAD FAILED.${NC}"
+        echo -e "${RED}>>> ERROR: DOWNLOAD FAILED OR SPACE FULL.${NC}"
         pause_script
         return
     fi
@@ -196,6 +201,7 @@ update_xray() {
     unzip -o "$TEMP_DIR/xray.zip" -d "$TEMP_DIR/extract" >/dev/null 2>&1
     
     if [ -f "$TEMP_DIR/extract/xray" ]; then
+        echo -e "${BLUE}>>> INSTALLING TO $BIN_DIR...${NC}"
         cp -f "$TEMP_DIR/extract/xray" "$BIN_DIR/xray"
         chmod +x "$BIN_DIR/xray"
         echo -e "${GREEN}>>> XRAY CORE UPDATED SUCCESSFULLY!${NC}"
@@ -207,7 +213,6 @@ update_xray() {
     pause_script
 }
 
-# --- SING-BOX UPDATE ---
 update_singbox() {
     prepare_environment
     echo -e "${YELLOW}>>> STARTING SING-BOX UPDATE CHECK...${NC}"
@@ -222,10 +227,11 @@ update_singbox() {
     fi
     
     echo -e "${BLUE}>>> DOWNLOADING: $DOWNLOAD_URL${NC}"
+    echo -e "${BLUE}>>> SAVING TO TEMP SPACE (RAM)...${NC}"
     curl -L -o "$TEMP_DIR/singbox.tar.gz" "$DOWNLOAD_URL"
     
     if [ ! -s "$TEMP_DIR/singbox.tar.gz" ]; then
-        echo -e "${RED}>>> ERROR: DOWNLOAD FAILED.${NC}"
+        echo -e "${RED}>>> ERROR: DOWNLOAD FAILED OR SPACE FULL.${NC}"
         return
     fi
     
@@ -238,6 +244,7 @@ update_singbox() {
     NEW_BIN=$(find "$TEMP_DIR" -type f -name "sing-box" | head -n 1)
     
     if [ -f "$NEW_BIN" ]; then
+        echo -e "${BLUE}>>> INSTALLING TO $BIN_DIR...${NC}"
         cp -f "$NEW_BIN" "$BIN_DIR/sing-box"
         chmod +x "$BIN_DIR/sing-box"
         echo -e "${GREEN}>>> SING-BOX CORE UPDATED SUCCESSFULLY!${NC}"
@@ -250,7 +257,6 @@ update_singbox() {
     pause_script
 }
 
-# --- HYSTERIA UPDATE ---
 update_hysteria() {
     prepare_environment
     echo -e "${YELLOW}>>> STARTING HYSTERIA UPDATE CHECK...${NC}"
@@ -264,10 +270,11 @@ update_hysteria() {
     fi
     
     echo -e "${BLUE}>>> DOWNLOADING BINARY: $DOWNLOAD_URL${NC}"
+    echo -e "${BLUE}>>> SAVING TO TEMP SPACE (RAM)...${NC}"
     curl -L -o "$TEMP_DIR/hysteria_new" "$DOWNLOAD_URL"
     
     if [ ! -s "$TEMP_DIR/hysteria_new" ]; then
-        echo -e "${RED}>>> ERROR: DOWNLOAD FAILED.${NC}"
+        echo -e "${RED}>>> ERROR: DOWNLOAD FAILED OR SPACE FULL.${NC}"
         return
     fi
     
@@ -285,7 +292,6 @@ update_hysteria() {
     pause_script
 }
 
-# --- IRAN.DAT UPDATE ---
 update_iran_dat() {
     prepare_environment
     echo -e "${YELLOW}>>> UPDATING IRAN.DAT (GEO DATABASE)...${NC}"
@@ -308,39 +314,26 @@ update_iran_dat() {
     pause_script
 }
 
-# --- RAM CLEANER ---
 ram_cleaner() {
     echo -e "${YELLOW}>>> STARTING RAM CLEANUP...${NC}"
-    
-    echo -e "${BLUE}>>> SYNCING FILESYSTEM...${NC}"
     sync
-    
-    echo -e "${BLUE}>>> DROPPING CACHES (ECHO 3)...${NC}"
     echo 3 > /proc/sys/vm/drop_caches
     
     FREE_RAM_AFTER_KB=$(grep MemFree /proc/meminfo | awk '{print $2}')
     FREE_RAM_AFTER=$((FREE_RAM_AFTER_KB / 1024))
     echo -e "${GREEN}>>> RAM CLEANED. FREE MEMORY NOW: ${FREE_RAM_AFTER}MB${NC}"
-    
     pause_script
 }
 
-# --- LUCI UPDATE (SMART) ---
 update_luci_pkg() {
     echo -e "${YELLOW}>>> CHECKING FOR LUCI UPDATES...${NC}"
     
-    echo -e "${BLUE}>>> REFRESHING PACKAGE LISTS...${NC}"
     opkg update >/dev/null 2>&1
-    
-    echo -e "${BLUE}>>> COMPARING VERSIONS...${NC}"
-    # Use 2>/dev/null to hide errors if command fails
     UPDATE_AVAIL=$(opkg list-upgradable 2>/dev/null | grep "^luci -")
     
     if [ -n "$UPDATE_AVAIL" ]; then
         echo -e "${YELLOW}>>> UPDATE AVAILABLE: LUCI${NC}"
-        echo -e "${BLUE}>>> UPGRADING...${NC}"
         opkg upgrade luci
-        
         if [ $? -eq 0 ]; then
             echo -e "${GREEN}>>> LUCI UPDATED SUCCESSFULLY!${NC}"
         else
@@ -349,7 +342,6 @@ update_luci_pkg() {
     else
         echo -e "${GREEN}>>> LUCI IS ALREADY UP TO DATE.${NC}"
     fi
-    
     pause_script
 }
 
@@ -374,6 +366,7 @@ show_main_header() {
     echo -e "${BLUE} CPU ARCH    :${NC} $ARCH"
     echo -e "${BLUE} RAM MEMORY  :${NC} USED: ${USED_RAM}MB / TOTAL: ${TOTAL_RAM}MB"
     echo -e "${BLUE} DISK SPACE  :${NC} FREE: ${DISK_FREE} / TOTAL: ${DISK_TOTAL}"
+    echo -e "${BLUE} TEMP SPACE  :${NC} FREE: ${TEMP_FREE} / TOTAL: ${TEMP_TOTAL}"
     echo -e "${BLUE} DNS SERVER  :${NC} $DNS_INFO"
     echo -e "${CYAN} -------------------------------------------------------------${NC}"
     echo ""
@@ -398,7 +391,7 @@ menu_update_cores() {
         echo -e " 3. UPDATE ${GREEN}HYSTERIA CORE${NC}"
         echo -e " 0. RETURN TO MAIN MENU"
         echo ""
-        echo -e " SELECT OPTION: \c"
+        printf " SELECT OPTION: "
         read SUB_OPT
         
         case $SUB_OPT in
@@ -429,7 +422,7 @@ while true; do
     echo -e " 6. UPDATE LUCI PACKAGE (SMART CHECK)"
     echo -e " 0. EXIT"
     echo ""
-    echo -e " ENTER YOUR CHOICE: \c"
+    printf " ENTER YOUR CHOICE: "
     read OPTION
     
     case $OPTION in
