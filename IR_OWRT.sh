@@ -1,7 +1,7 @@
 #!/bin/sh
 
 # ==============================================================================
-#  VIP3R OPENWRT MASTER SCRIPT - FIXED DISK/RAM & ADDED COLLABORATOR
+#  VIP3R OPENWRT MASTER SCRIPT - FIXED & OPTIMIZED
 # ==============================================================================
 
 # --- COLORS ---
@@ -23,14 +23,14 @@ GEO_DIR="/usr/share/v2ray"
 
 check_internet_connection() {
     echo -e "${YELLOW}>>> CHECKING INTERNET CONNECTIVITY...${NC}"
-    ping -c 1 8.8.8.8 >/dev/null 2>&1
-    if [ $? -ne 0 ]; then
+    if ping -c 1 8.8.8.8 >/dev/null 2>&1; then
+        echo -e "${GREEN}>>> INTERNET CONNECTION: OK${NC}"
+    else
         echo -e "${RED}>>> ERROR: NO INTERNET CONNECTION DETECTED!${NC}"
         echo -e "${RED}>>> PLEASE FIX YOUR NETWORK BEFORE PROCEEDING.${NC}"
-        read -p "PRESS ENTER TO EXIT..."
+        echo "PRESS ENTER TO EXIT..."
+        read DUMMY
         exit 1
-    else
-        echo -e "${GREEN}>>> INTERNET CONNECTION: OK${NC}"
     fi
 }
 
@@ -48,22 +48,19 @@ get_sys_info() {
     [ -z "$CPU_MODEL" ] && CPU_MODEL=$(grep -m 1 "system type" /proc/cpuinfo | cut -d: -f2 | sed 's/^[ \t]*//')
     CPU_MODEL=$(echo "$CPU_MODEL" | tr 'a-z' 'A-Z')
 
-    # MEMORY (READING FROM /proc/meminfo FOR ACCURACY)
-    # Convert KB to MB directly
+    # MEMORY
     TOTAL_RAM_KB=$(grep MemTotal /proc/meminfo | awk '{print $2}')
     FREE_RAM_KB=$(grep MemFree /proc/meminfo | awk '{print $2}')
     BUFFERS_KB=$(grep Buffers /proc/meminfo | awk '{print $2}')
     CACHED_KB=$(grep ^Cached /proc/meminfo | awk '{print $2}')
     
-    # Calculate usable used ram (Total - Free - Buffers - Cached)
     USED_RAM_KB=$((TOTAL_RAM_KB - FREE_RAM_KB - BUFFERS_KB - CACHED_KB))
     
     TOTAL_RAM=$((TOTAL_RAM_KB / 1024))
     USED_RAM=$((USED_RAM_KB / 1024))
     FREE_RAM=$((FREE_RAM_KB / 1024))
 
-    # STORAGE (SMART DETECT: OVERLAY VS ROOT)
-    # Check if /overlay exists (common in OpenWrt for writable space)
+    # STORAGE
     if df -h /overlay >/dev/null 2>&1; then
         TARGET_DISK="/overlay"
     else
@@ -81,7 +78,7 @@ get_sys_info() {
 }
 
 # ==============================================================================
-#  2. ARCHITECTURE MAPPING (PRECISE)
+#  2. ARCHITECTURE MAPPING
 # ==============================================================================
 
 get_core_arch() {
@@ -159,6 +156,12 @@ backup_binary() {
     fi
 }
 
+pause_script() {
+    echo ""
+    echo -e "PRESS ${YELLOW}ENTER${NC} TO CONTINUE..."
+    read DUMMY
+}
+
 # ==============================================================================
 #  4. UPDATE FUNCTIONS
 # ==============================================================================
@@ -173,7 +176,7 @@ update_xray() {
     
     if [ -z "$DOWNLOAD_URL" ]; then
         echo -e "${RED}>>> ERROR: COULD NOT FIND XRAY DOWNLOAD LINK.${NC}"
-        read -p "PRESS ENTER TO RETURN..."
+        pause_script
         return
     fi
     
@@ -182,7 +185,7 @@ update_xray() {
     
     if [ ! -s "$TEMP_DIR/xray.zip" ]; then
         echo -e "${RED}>>> ERROR: DOWNLOAD FAILED.${NC}"
-        read -p "PRESS ENTER TO RETURN..."
+        pause_script
         return
     fi
     
@@ -201,21 +204,20 @@ update_xray() {
     fi
     
     restart_passwall
-    read -p "PRESS ENTER TO CONTINUE..."
+    pause_script
 }
 
-# --- SING-BOX UPDATE (FIXED) ---
+# --- SING-BOX UPDATE ---
 update_singbox() {
     prepare_environment
     echo -e "${YELLOW}>>> STARTING SING-BOX UPDATE CHECK...${NC}"
     echo -e "${BLUE}>>> ARCH: $SING_ARCH${NC}"
     
-    # Improved Search Pattern for new Sing-box releases
     DOWNLOAD_URL=$(curl -s "https://api.github.com/repos/SagerNet/sing-box/releases/latest" | grep "browser_download_url" | grep -i "linux-$SING_ARCH.tar.gz" | cut -d '"' -f 4 | head -n 1)
     
     if [ -z "$DOWNLOAD_URL" ]; then
         echo -e "${RED}>>> ERROR: COULD NOT FIND SING-BOX DOWNLOAD LINK.${NC}"
-        echo -e "${YELLOW}>>> CHECKING MANUAL PATTERN...${NC}"
+        pause_script
         return
     fi
     
@@ -233,32 +235,27 @@ update_singbox() {
     echo -e "${BLUE}>>> EXTRACTING...${NC}"
     tar -zxvf "$TEMP_DIR/singbox.tar.gz" -C "$TEMP_DIR" >/dev/null 2>&1
     
-    # FIND BINARY (Usually inside a versioned folder)
     NEW_BIN=$(find "$TEMP_DIR" -type f -name "sing-box" | head -n 1)
     
     if [ -f "$NEW_BIN" ]; then
         cp -f "$NEW_BIN" "$BIN_DIR/sing-box"
         chmod +x "$BIN_DIR/sing-box"
         echo -e "${GREEN}>>> SING-BOX CORE UPDATED SUCCESSFULLY!${NC}"
-        # Print Version
         "$BIN_DIR/sing-box" version | head -n 1
     else
         echo -e "${RED}>>> ERROR: BINARY NOT FOUND IN TAR.${NC}"
-        echo -e "${YELLOW}>>> DEBUG INFO: CONTENTS OF EXTRACT:${NC}"
-        ls -R "$TEMP_DIR"
     fi
     
     restart_passwall
-    read -p "PRESS ENTER TO CONTINUE..."
+    pause_script
 }
 
-# --- HYSTERIA UPDATE (FIXED) ---
+# --- HYSTERIA UPDATE ---
 update_hysteria() {
     prepare_environment
     echo -e "${YELLOW}>>> STARTING HYSTERIA UPDATE CHECK...${NC}"
     echo -e "${BLUE}>>> ARCH: $HYS_ARCH${NC}"
     
-    # Hysteria 2 naming convention fix (e.g., hysteria-linux-amd64)
     DOWNLOAD_URL=$(curl -s "https://api.github.com/repos/apernet/hysteria/releases/latest" | grep "browser_download_url" | grep -i "hysteria-linux-$HYS_ARCH" | grep -v "avx" | grep -v ".md5" | grep -v ".sha" | cut -d '"' -f 4 | head -n 1)
     
     if [ -z "$DOWNLOAD_URL" ]; then
@@ -282,11 +279,10 @@ update_hysteria() {
     chmod +x "$BIN_DIR/hysteria"
     
     echo -e "${GREEN}>>> HYSTERIA CORE UPDATED SUCCESSFULLY!${NC}"
-    # Print Version
     "$BIN_DIR/hysteria" version | head -n 1
     
     restart_passwall
-    read -p "PRESS ENTER TO CONTINUE..."
+    pause_script
 }
 
 # --- IRAN.DAT UPDATE ---
@@ -309,7 +305,7 @@ update_iran_dat() {
         echo -e "${RED}>>> ERROR: DOWNLOAD FAILED OR FILE IS EMPTY.${NC}"
     fi
     
-    read -p "PRESS ENTER TO CONTINUE..."
+    pause_script
 }
 
 # --- RAM CLEANER ---
@@ -322,12 +318,39 @@ ram_cleaner() {
     echo -e "${BLUE}>>> DROPPING CACHES (ECHO 3)...${NC}"
     echo 3 > /proc/sys/vm/drop_caches
     
-    # Recalculate Free RAM
     FREE_RAM_AFTER_KB=$(grep MemFree /proc/meminfo | awk '{print $2}')
     FREE_RAM_AFTER=$((FREE_RAM_AFTER_KB / 1024))
     echo -e "${GREEN}>>> RAM CLEANED. FREE MEMORY NOW: ${FREE_RAM_AFTER}MB${NC}"
     
-    read -p "PRESS ENTER TO CONTINUE..."
+    pause_script
+}
+
+# --- LUCI UPDATE (SMART) ---
+update_luci_pkg() {
+    echo -e "${YELLOW}>>> CHECKING FOR LUCI UPDATES...${NC}"
+    
+    echo -e "${BLUE}>>> REFRESHING PACKAGE LISTS...${NC}"
+    opkg update >/dev/null 2>&1
+    
+    echo -e "${BLUE}>>> COMPARING VERSIONS...${NC}"
+    # Use 2>/dev/null to hide errors if command fails
+    UPDATE_AVAIL=$(opkg list-upgradable 2>/dev/null | grep "^luci -")
+    
+    if [ -n "$UPDATE_AVAIL" ]; then
+        echo -e "${YELLOW}>>> UPDATE AVAILABLE: LUCI${NC}"
+        echo -e "${BLUE}>>> UPGRADING...${NC}"
+        opkg upgrade luci
+        
+        if [ $? -eq 0 ]; then
+            echo -e "${GREEN}>>> LUCI UPDATED SUCCESSFULLY!${NC}"
+        else
+            echo -e "${RED}>>> ERROR: UPGRADE FAILED.${NC}"
+        fi
+    else
+        echo -e "${GREEN}>>> LUCI IS ALREADY UP TO DATE.${NC}"
+    fi
+    
+    pause_script
 }
 
 # ==============================================================================
@@ -361,7 +384,7 @@ menu_update_cores() {
     
     if [ "$XRAY_ARCH" = "UNKNOWN" ]; then
         echo -e "${RED}>>> CRITICAL ERROR: ARCHITECTURE NOT SUPPORTED AUTOMATICALLY.${NC}"
-        read -p "PRESS ENTER..."
+        pause_script
         return
     fi
 
@@ -375,14 +398,15 @@ menu_update_cores() {
         echo -e " 3. UPDATE ${GREEN}HYSTERIA CORE${NC}"
         echo -e " 0. RETURN TO MAIN MENU"
         echo ""
-        read -p " SELECT OPTION: " SUB_OPT
+        echo -e " SELECT OPTION: \c"
+        read SUB_OPT
         
         case $SUB_OPT in
             1) update_xray ;;
             2) update_singbox ;;
             3) update_hysteria ;;
             0) break ;;
-            *) echo -e "${RED} INVALID OPTION${NC}" ;;
+            *) echo -e "${RED} INVALID OPTION${NC}" ; sleep 1 ;;
         esac
     done
 }
@@ -402,9 +426,11 @@ while true; do
     echo -e " 3. UPDATE CORES (XRAY, SING-BOX, HYSTERIA)"
     echo -e " 4. INSTALL/UPDATE IRAN.DAT GEO"
     echo -e " 5. RAM CLEANER (OPTIMIZE)"
+    echo -e " 6. UPDATE LUCI PACKAGE (SMART CHECK)"
     echo -e " 0. EXIT"
     echo ""
-    read -p " ENTER YOUR CHOICE: " OPTION
+    echo -e " ENTER YOUR CHOICE: \c"
+    read OPTION
     
     case $OPTION in
         1)
@@ -412,16 +438,17 @@ while true; do
             opkg update
             opkg install curl unzip tar ca-bundle ca-certificates
             echo -e "${GREEN}>>> COMPLETED.${NC}"
-            read -p "PRESS ENTER..."
+            pause_script
             ;;
         2)
             echo -e "${YELLOW}>>> LAUNCHING PASSWALL INSTALLER...${NC}"
             wget -qO- https://saeed9400.github.io/IRAN_Passwall2/install.sh | sh
-            read -p "PRESS ENTER..."
+            pause_script
             ;;
         3) menu_update_cores ;;
         4) update_iran_dat ;;
         5) ram_cleaner ;;
+        6) update_luci_pkg ;;
         0) echo -e "${GREEN} GOODBYE VIP3R!${NC}"; exit 0 ;;
         *) echo -e "${RED} INVALID OPTION!${NC}"; sleep 1 ;;
     esac
