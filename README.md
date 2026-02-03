@@ -76,3 +76,16 @@ chmod +x IR_OWRT.sh
 VIP3R OPENWRT MASTER SCRIPT ❤️
 
 </div>
+
+---
+
+## 🎁 DONATION / حمایت مالی
+<br>
+اگر این پروژه برای شما مفید بوده است، می‌توانید از ما حمایت مالی کنید.
+
+**TRON (TRX)**
+```
+TBwGy36S9AV7iXFukdC8Y94zQZhQndPJyD
+```
+
+</div>
