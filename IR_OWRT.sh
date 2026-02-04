@@ -1,7 +1,7 @@
 #!/bin/sh
 
 # ==============================================================================
-#  VIP3R OPENWRT MASTER SCRIPT - FIXED & STABLE (SMART RAM EDITION + UNLOCKER)
+#  VIP3R OPENWRT MASTER SCRIPT - FIXED & STABLE (ANTI-LOCK EDITION)
 # ==============================================================================
 
 # --- COLORS ---
@@ -140,17 +140,22 @@ prepare_environment() {
     echo -e "${YELLOW}>>> TEMP ENVIRONMENT PREPARED IN $TEMP_DIR (RAM)${NC}"
 }
 
-force_unlock_fs() {
-    # NEW FUNCTION: FIXES 'READ-ONLY FILE SYSTEM' ERROR
-    echo -e "${YELLOW}>>> CHECKING FILESYSTEM LOCKS...${NC}"
-    mount -o remount,rw /overlay >/dev/null 2>&1
-    mount -o remount,rw / >/dev/null 2>&1
-    echo -e "${GREEN}>>> FILESYSTEM REMOUNTED AS READ-WRITE.${NC}"
+super_force_unlock() {
+    # POWERFUL FUNCTION TO UNLOCK READ-ONLY FILESYSTEM
+    echo -e "${YELLOW}>>> ATTEMPTING TO UNLOCK FILESYSTEM (READ-WRITE)...${NC}"
+    sync
+    mount -o remount,rw /overlay 2>/dev/null
+    mount -o remount,rw / 2>/dev/null
+    if [ $? -eq 0 ]; then
+        echo -e "${GREEN}>>> FILESYSTEM UNLOCKED.${NC}"
+    else
+        echo -e "${RED}>>> WARNING: COULD NOT REMOUNT RW. FORCE DELETE MAY FAIL.${NC}"
+    fi
 }
 
 emergency_cleaner() {
-    # NEW FUNCTION: DELETES USELESS FILES IF DISK IS 0KB TO ALLOW OPERATIONS
-    echo -e "${YELLOW}>>> EMERGENCY CLEAN: REMOVING OLD LISTS & BACKUPS...${NC}"
+    # DELETE USELESS FILES FIRST TO ALLOW RM TO WORK
+    echo -e "${YELLOW}>>> CLEANING JUNK TO FREE SPACE FOR DELETION...${NC}"
     rm -rf /var/opkg-lists/* >/dev/null 2>&1
     # Remove old binary backups to free space
     rm -f "$BIN_DIR/xray.bak" >/dev/null 2>&1
@@ -175,11 +180,11 @@ backup_binary() {
     local NAME=$1
     if [ -f "$BIN_DIR/$NAME" ]; then
         echo -e "${YELLOW}>>> BACKING UP CURRENT $NAME...${NC}"
-        # Only backup if we have space, otherwise skip to prevent "No space left"
-        if df /overlay | awk 'NR==2 { if ($4 > 200) exit 0; else exit 1; }'; then
+        # CHECK SPACE BEFORE BACKUP
+        if df /overlay | awk 'NR==2 { if ($4 > 500) exit 0; else exit 1; }'; then
              cp "$BIN_DIR/$NAME" "$BIN_DIR/${NAME}.bak"
         else
-             echo -e "${RED}>>> WARNING: LOW DISK SPACE. SKIPPING BACKUP.${NC}"
+             echo -e "${RED}>>> SKIP BACKUP: NOT ENOUGH DISK SPACE.${NC}"
         fi
     fi
 }
@@ -218,20 +223,31 @@ update_xray() {
     fi
     
     stop_passwall
-    force_unlock_fs
+    super_force_unlock
     emergency_cleaner
-    # backup_binary "xray" # Skipped to save space on 0kb devices
     
     echo -e "${BLUE}>>> EXTRACTING IN RAM...${NC}"
     unzip -o "$TEMP_DIR/xray.zip" -d "$TEMP_DIR/extract" >/dev/null 2>&1
     
     if [ -f "$TEMP_DIR/extract/xray" ]; then
         echo -e "${BLUE}>>> INSTALLING TO $BIN_DIR...${NC}"
-        # SMART FIX: REMOVE OLD FILE FIRST TO FREE DISK SPACE (FORCE)
-        rm -rf "$BIN_DIR/xray" >/dev/null 2>&1
+        
+        # CRITICAL: DELETE FIRST
+        rm -f "$BIN_DIR/xray"
+        if [ -f "$BIN_DIR/xray" ]; then
+             echo -e "${RED}>>> CRITICAL ERROR: CANNOT DELETE OLD FILE. FS LOCKED.${NC}"
+             pause_script
+             return
+        fi
+        
         cp -f "$TEMP_DIR/extract/xray" "$BIN_DIR/xray"
         chmod +x "$BIN_DIR/xray"
-        echo -e "${GREEN}>>> XRAY CORE UPDATED SUCCESSFULLY!${NC}"
+        
+        if [ -f "$BIN_DIR/xray" ]; then
+             echo -e "${GREEN}>>> XRAY CORE UPDATED SUCCESSFULLY!${NC}"
+        else
+             echo -e "${RED}>>> ERROR: COPY FAILED (DISK FULL?)${NC}"
+        fi
     else
         echo -e "${RED}>>> ERROR: BINARY NOT FOUND IN ZIP.${NC}"
     fi
@@ -263,9 +279,8 @@ update_singbox() {
     fi
     
     stop_passwall
-    force_unlock_fs
+    super_force_unlock
     emergency_cleaner
-    # backup_binary "sing-box"
     
     echo -e "${BLUE}>>> EXTRACTING IN RAM...${NC}"
     tar -zxvf "$TEMP_DIR/singbox.tar.gz" -C "$TEMP_DIR" >/dev/null 2>&1
@@ -274,12 +289,24 @@ update_singbox() {
     
     if [ -f "$NEW_BIN" ]; then
         echo -e "${BLUE}>>> INSTALLING TO $BIN_DIR...${NC}"
-        # SMART FIX: REMOVE OLD FILE FIRST
-        rm -rf "$BIN_DIR/sing-box" >/dev/null 2>&1
+        
+        # CRITICAL: DELETE FIRST
+        rm -f "$BIN_DIR/sing-box"
+        if [ -f "$BIN_DIR/sing-box" ]; then
+             echo -e "${RED}>>> CRITICAL ERROR: CANNOT DELETE OLD FILE. FS LOCKED.${NC}"
+             pause_script
+             return
+        fi
+
         cp -f "$NEW_BIN" "$BIN_DIR/sing-box"
         chmod +x "$BIN_DIR/sing-box"
-        echo -e "${GREEN}>>> SING-BOX CORE UPDATED SUCCESSFULLY!${NC}"
-        "$BIN_DIR/sing-box" version | head -n 1
+        
+        if [ -f "$BIN_DIR/sing-box" ]; then
+             echo -e "${GREEN}>>> SING-BOX CORE UPDATED SUCCESSFULLY!${NC}"
+             "$BIN_DIR/sing-box" version | head -n 1
+        else
+             echo -e "${RED}>>> ERROR: COPY FAILED (DISK FULL?)${NC}"
+        fi
     else
         echo -e "${RED}>>> ERROR: BINARY NOT FOUND IN TAR.${NC}"
     fi
@@ -310,24 +337,34 @@ update_hysteria() {
     fi
     
     stop_passwall
-    force_unlock_fs
+    super_force_unlock
     emergency_cleaner
-    # backup_binary "hysteria"
     
     echo -e "${BLUE}>>> INSTALLING...${NC}"
-    # CRITICAL FIX: UNLOCK & FORCE DELETE OLD BINARY
+    
+    # CRITICAL FIX: VERIFY DELETION BEFORE COPY
     echo -e "${BLUE}>>> REMOVING OLD BINARY TO FREE SPACE...${NC}"
-    rm -rf "$BIN_DIR/hysteria" >/dev/null 2>&1
+    if [ -f "$BIN_DIR/hysteria" ]; then
+        rm -f "$BIN_DIR/hysteria"
+        
+        # DOUBLE CHECK IF DELETE WORKED
+        if [ -f "$BIN_DIR/hysteria" ]; then
+            echo -e "${RED}>>> FATAL ERROR: FILESYSTEM IS READ-ONLY. CANNOT DELETE.${NC}"
+            echo -e "${RED}>>> PLEASE REBOOT YOUR ROUTER MANUALLY AND TRY AGAIN.${NC}"
+            pause_script
+            return
+        fi
+    fi
     
     echo -e "${BLUE}>>> COPYING NEW BINARY...${NC}"
     cp -f "$TEMP_DIR/hysteria_new" "$BIN_DIR/hysteria"
-    chmod +x "$BIN_DIR/hysteria"
     
     if [ -f "$BIN_DIR/hysteria" ]; then
+        chmod +x "$BIN_DIR/hysteria"
         echo -e "${GREEN}>>> HYSTERIA CORE UPDATED SUCCESSFULLY!${NC}"
         "$BIN_DIR/hysteria" version | head -n 1
     else
-        echo -e "${RED}>>> ERROR: INSTALLATION FAILED. FILESYSTEM MIGHT BE LOCKED.${NC}"
+        echo -e "${RED}>>> ERROR: COPY FAILED. DISK IS FULL OR LOCKED.${NC}"
     fi
     
     restart_passwall
@@ -347,11 +384,17 @@ update_iran_dat() {
     
     if [ -s "$TEMP_DIR/iran.dat" ]; then
         echo -e "${BLUE}>>> MOVING FILE TO $GEO_DIR...${NC}"
-        force_unlock_fs
+        super_force_unlock
         emergency_cleaner
-        rm -f "$GEO_DIR/iran.dat" >/dev/null 2>&1
+        
+        rm -f "$GEO_DIR/iran.dat"
         mv "$TEMP_DIR/iran.dat" "$GEO_DIR/iran.dat"
-        echo -e "${GREEN}>>> IRAN.DAT UPDATED SUCCESSFULLY!${NC}"
+        
+        if [ -f "$GEO_DIR/iran.dat" ]; then
+             echo -e "${GREEN}>>> IRAN.DAT UPDATED SUCCESSFULLY!${NC}"
+        else
+             echo -e "${RED}>>> ERROR: UPDATE FAILED.${NC}"
+        fi
     else
         echo -e "${RED}>>> ERROR: DOWNLOAD FAILED OR FILE IS EMPTY.${NC}"
     fi
@@ -374,9 +417,8 @@ update_luci_pkg() {
     echo -e "${YELLOW}>>> CHECKING FOR LUCI UPDATES...${NC}"
     prepare_environment
 
-    # SUPER CRITICAL FIX FOR 0KB SPACE
     echo -e "${BLUE}>>> CLEANING LISTS...${NC}"
-    force_unlock_fs
+    super_force_unlock
     emergency_cleaner
     
     echo -e "${BLUE}>>> UPDATING PACKAGE LISTS (IN RAM)...${NC}"
@@ -388,7 +430,6 @@ update_luci_pkg() {
         echo -e "${YELLOW}>>> UPDATE AVAILABLE: LUCI${NC}"
         echo -e "${RED}>>> CRITICAL DISK MODE: REMOVING OLD TO INSTALL NEW...${NC}"
         
-        # LOGIC CHANGE: REMOVE THEN INSTALL (INSTEAD OF UPGRADE)
         echo -e "${BLUE}>>> STEP 1: REMOVING OLD LUCI (KEEPING CONFIG)...${NC}"
         opkg remove luci --force-depends >/dev/null 2>&1
         
@@ -405,7 +446,6 @@ update_luci_pkg() {
         echo -e "${GREEN}>>> LUCI IS ALREADY UP TO DATE.${NC}"
     fi
     
-    # FINAL CLEANUP
     rm -rf /var/opkg-lists/* >/dev/null 2>&1
     rm -rf "$TEMP_DIR/*" >/dev/null 2>&1
     pause_script
