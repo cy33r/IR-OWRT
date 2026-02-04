@@ -1,7 +1,7 @@
 #!/bin/sh
 
 # ==============================================================================
-#  VIP3R OPENWRT MASTER SCRIPT - FIXED & STABLE (SMART RAM EDITION)
+#  VIP3R OPENWRT MASTER SCRIPT - FIXED & STABLE (SMART RAM EDITION + UNLOCKER)
 # ==============================================================================
 
 # --- COLORS ---
@@ -140,6 +140,24 @@ prepare_environment() {
     echo -e "${YELLOW}>>> TEMP ENVIRONMENT PREPARED IN $TEMP_DIR (RAM)${NC}"
 }
 
+force_unlock_fs() {
+    # NEW FUNCTION: FIXES 'READ-ONLY FILE SYSTEM' ERROR
+    echo -e "${YELLOW}>>> CHECKING FILESYSTEM LOCKS...${NC}"
+    mount -o remount,rw /overlay >/dev/null 2>&1
+    mount -o remount,rw / >/dev/null 2>&1
+    echo -e "${GREEN}>>> FILESYSTEM REMOUNTED AS READ-WRITE.${NC}"
+}
+
+emergency_cleaner() {
+    # NEW FUNCTION: DELETES USELESS FILES IF DISK IS 0KB TO ALLOW OPERATIONS
+    echo -e "${YELLOW}>>> EMERGENCY CLEAN: REMOVING OLD LISTS & BACKUPS...${NC}"
+    rm -rf /var/opkg-lists/* >/dev/null 2>&1
+    # Remove old binary backups to free space
+    rm -f "$BIN_DIR/xray.bak" >/dev/null 2>&1
+    rm -f "$BIN_DIR/sing-box.bak" >/dev/null 2>&1
+    rm -f "$BIN_DIR/hysteria.bak" >/dev/null 2>&1
+}
+
 stop_passwall() {
     echo -e "${BLUE}>>> STOPPING PASSWALL SERVICES...${NC}"
     /etc/init.d/passwall2 stop >/dev/null 2>&1
@@ -157,7 +175,12 @@ backup_binary() {
     local NAME=$1
     if [ -f "$BIN_DIR/$NAME" ]; then
         echo -e "${YELLOW}>>> BACKING UP CURRENT $NAME...${NC}"
-        cp "$BIN_DIR/$NAME" "$BIN_DIR/${NAME}.bak"
+        # Only backup if we have space, otherwise skip to prevent "No space left"
+        if df /overlay | awk 'NR==2 { if ($4 > 200) exit 0; else exit 1; }'; then
+             cp "$BIN_DIR/$NAME" "$BIN_DIR/${NAME}.bak"
+        else
+             echo -e "${RED}>>> WARNING: LOW DISK SPACE. SKIPPING BACKUP.${NC}"
+        fi
     fi
 }
 
@@ -195,15 +218,17 @@ update_xray() {
     fi
     
     stop_passwall
-    backup_binary "xray"
+    force_unlock_fs
+    emergency_cleaner
+    # backup_binary "xray" # Skipped to save space on 0kb devices
     
     echo -e "${BLUE}>>> EXTRACTING IN RAM...${NC}"
     unzip -o "$TEMP_DIR/xray.zip" -d "$TEMP_DIR/extract" >/dev/null 2>&1
     
     if [ -f "$TEMP_DIR/extract/xray" ]; then
         echo -e "${BLUE}>>> INSTALLING TO $BIN_DIR...${NC}"
-        # SMART FIX: REMOVE OLD FILE FIRST TO FREE DISK SPACE
-        rm -f "$BIN_DIR/xray" >/dev/null 2>&1
+        # SMART FIX: REMOVE OLD FILE FIRST TO FREE DISK SPACE (FORCE)
+        rm -rf "$BIN_DIR/xray" >/dev/null 2>&1
         cp -f "$TEMP_DIR/extract/xray" "$BIN_DIR/xray"
         chmod +x "$BIN_DIR/xray"
         echo -e "${GREEN}>>> XRAY CORE UPDATED SUCCESSFULLY!${NC}"
@@ -238,7 +263,9 @@ update_singbox() {
     fi
     
     stop_passwall
-    backup_binary "sing-box"
+    force_unlock_fs
+    emergency_cleaner
+    # backup_binary "sing-box"
     
     echo -e "${BLUE}>>> EXTRACTING IN RAM...${NC}"
     tar -zxvf "$TEMP_DIR/singbox.tar.gz" -C "$TEMP_DIR" >/dev/null 2>&1
@@ -247,8 +274,8 @@ update_singbox() {
     
     if [ -f "$NEW_BIN" ]; then
         echo -e "${BLUE}>>> INSTALLING TO $BIN_DIR...${NC}"
-        # SMART FIX: REMOVE OLD FILE FIRST TO FREE DISK SPACE
-        rm -f "$BIN_DIR/sing-box" >/dev/null 2>&1
+        # SMART FIX: REMOVE OLD FILE FIRST
+        rm -rf "$BIN_DIR/sing-box" >/dev/null 2>&1
         cp -f "$NEW_BIN" "$BIN_DIR/sing-box"
         chmod +x "$BIN_DIR/sing-box"
         echo -e "${GREEN}>>> SING-BOX CORE UPDATED SUCCESSFULLY!${NC}"
@@ -283,16 +310,25 @@ update_hysteria() {
     fi
     
     stop_passwall
-    backup_binary "hysteria"
+    force_unlock_fs
+    emergency_cleaner
+    # backup_binary "hysteria"
     
     echo -e "${BLUE}>>> INSTALLING...${NC}"
-    # SMART FIX: REMOVE OLD FILE FIRST TO FREE DISK SPACE
-    rm -f "$BIN_DIR/hysteria" >/dev/null 2>&1
+    # CRITICAL FIX: UNLOCK & FORCE DELETE OLD BINARY
+    echo -e "${BLUE}>>> REMOVING OLD BINARY TO FREE SPACE...${NC}"
+    rm -rf "$BIN_DIR/hysteria" >/dev/null 2>&1
+    
+    echo -e "${BLUE}>>> COPYING NEW BINARY...${NC}"
     cp -f "$TEMP_DIR/hysteria_new" "$BIN_DIR/hysteria"
     chmod +x "$BIN_DIR/hysteria"
     
-    echo -e "${GREEN}>>> HYSTERIA CORE UPDATED SUCCESSFULLY!${NC}"
-    "$BIN_DIR/hysteria" version | head -n 1
+    if [ -f "$BIN_DIR/hysteria" ]; then
+        echo -e "${GREEN}>>> HYSTERIA CORE UPDATED SUCCESSFULLY!${NC}"
+        "$BIN_DIR/hysteria" version | head -n 1
+    else
+        echo -e "${RED}>>> ERROR: INSTALLATION FAILED. FILESYSTEM MIGHT BE LOCKED.${NC}"
+    fi
     
     restart_passwall
     pause_script
@@ -311,7 +347,8 @@ update_iran_dat() {
     
     if [ -s "$TEMP_DIR/iran.dat" ]; then
         echo -e "${BLUE}>>> MOVING FILE TO $GEO_DIR...${NC}"
-        # SMART FIX: REMOVE OLD FILE FIRST
+        force_unlock_fs
+        emergency_cleaner
         rm -f "$GEO_DIR/iran.dat" >/dev/null 2>&1
         mv "$TEMP_DIR/iran.dat" "$GEO_DIR/iran.dat"
         echo -e "${GREEN}>>> IRAN.DAT UPDATED SUCCESSFULLY!${NC}"
@@ -339,7 +376,8 @@ update_luci_pkg() {
 
     # SUPER CRITICAL FIX FOR 0KB SPACE
     echo -e "${BLUE}>>> CLEANING LISTS...${NC}"
-    rm -rf /var/opkg-lists/* >/dev/null 2>&1
+    force_unlock_fs
+    emergency_cleaner
     
     echo -e "${BLUE}>>> UPDATING PACKAGE LISTS (IN RAM)...${NC}"
     opkg update --tmp-dir "$TEMP_DIR" >/dev/null 2>&1
@@ -351,8 +389,6 @@ update_luci_pkg() {
         echo -e "${RED}>>> CRITICAL DISK MODE: REMOVING OLD TO INSTALL NEW...${NC}"
         
         # LOGIC CHANGE: REMOVE THEN INSTALL (INSTEAD OF UPGRADE)
-        # THIS BYPASSES THE "0KB AVAILABLE" ERROR
-        
         echo -e "${BLUE}>>> STEP 1: REMOVING OLD LUCI (KEEPING CONFIG)...${NC}"
         opkg remove luci --force-depends >/dev/null 2>&1
         
@@ -363,7 +399,7 @@ update_luci_pkg() {
             echo -e "${GREEN}>>> LUCI UPDATED SUCCESSFULLY!${NC}"
         else
             echo -e "${RED}>>> ERROR: INSTALL FAILED. ATTEMPTING RETRY...${NC}"
-            opkg install luci --tmp-dir "$TEMP_DIR"
+            opkg install luci --tmp-dir "$TEMP_DIR" --force-depends
         fi
     else
         echo -e "${GREEN}>>> LUCI IS ALREADY UP TO DATE.${NC}"
