@@ -1,7 +1,7 @@
 #!/bin/sh
 
 # ==============================================================================
-#  VIP3R OPENWRT MASTER SCRIPT - FIXED & STABLE
+#  VIP3R OPENWRT MASTER SCRIPT - FIXED & STABLE (SMART RAM EDITION)
 # ==============================================================================
 
 # --- COLORS ---
@@ -137,7 +137,7 @@ get_core_arch() {
 prepare_environment() {
     mkdir -p "$TEMP_DIR"
     rm -rf "$TEMP_DIR/*"
-    echo -e "${YELLOW}>>> TEMP ENVIRONMENT PREPARED IN $TEMP_DIR${NC}"
+    echo -e "${YELLOW}>>> TEMP ENVIRONMENT PREPARED IN $TEMP_DIR (RAM)${NC}"
 }
 
 stop_passwall() {
@@ -189,7 +189,7 @@ update_xray() {
     curl -L -o "$TEMP_DIR/xray.zip" "$DOWNLOAD_URL"
     
     if [ ! -s "$TEMP_DIR/xray.zip" ]; then
-        echo -e "${RED}>>> ERROR: DOWNLOAD FAILED OR SPACE FULL.${NC}"
+        echo -e "${RED}>>> ERROR: DOWNLOAD FAILED OR SPACE FULL IN RAM.${NC}"
         pause_script
         return
     fi
@@ -197,11 +197,13 @@ update_xray() {
     stop_passwall
     backup_binary "xray"
     
-    echo -e "${BLUE}>>> EXTRACTING...${NC}"
+    echo -e "${BLUE}>>> EXTRACTING IN RAM...${NC}"
     unzip -o "$TEMP_DIR/xray.zip" -d "$TEMP_DIR/extract" >/dev/null 2>&1
     
     if [ -f "$TEMP_DIR/extract/xray" ]; then
         echo -e "${BLUE}>>> INSTALLING TO $BIN_DIR...${NC}"
+        # SMART FIX: REMOVE OLD FILE FIRST TO FREE DISK SPACE
+        rm -f "$BIN_DIR/xray" >/dev/null 2>&1
         cp -f "$TEMP_DIR/extract/xray" "$BIN_DIR/xray"
         chmod +x "$BIN_DIR/xray"
         echo -e "${GREEN}>>> XRAY CORE UPDATED SUCCESSFULLY!${NC}"
@@ -231,20 +233,22 @@ update_singbox() {
     curl -L -o "$TEMP_DIR/singbox.tar.gz" "$DOWNLOAD_URL"
     
     if [ ! -s "$TEMP_DIR/singbox.tar.gz" ]; then
-        echo -e "${RED}>>> ERROR: DOWNLOAD FAILED OR SPACE FULL.${NC}"
+        echo -e "${RED}>>> ERROR: DOWNLOAD FAILED OR SPACE FULL IN RAM.${NC}"
         return
     fi
     
     stop_passwall
     backup_binary "sing-box"
     
-    echo -e "${BLUE}>>> EXTRACTING...${NC}"
+    echo -e "${BLUE}>>> EXTRACTING IN RAM...${NC}"
     tar -zxvf "$TEMP_DIR/singbox.tar.gz" -C "$TEMP_DIR" >/dev/null 2>&1
     
     NEW_BIN=$(find "$TEMP_DIR" -type f -name "sing-box" | head -n 1)
     
     if [ -f "$NEW_BIN" ]; then
         echo -e "${BLUE}>>> INSTALLING TO $BIN_DIR...${NC}"
+        # SMART FIX: REMOVE OLD FILE FIRST TO FREE DISK SPACE
+        rm -f "$BIN_DIR/sing-box" >/dev/null 2>&1
         cp -f "$NEW_BIN" "$BIN_DIR/sing-box"
         chmod +x "$BIN_DIR/sing-box"
         echo -e "${GREEN}>>> SING-BOX CORE UPDATED SUCCESSFULLY!${NC}"
@@ -274,7 +278,7 @@ update_hysteria() {
     curl -L -o "$TEMP_DIR/hysteria_new" "$DOWNLOAD_URL"
     
     if [ ! -s "$TEMP_DIR/hysteria_new" ]; then
-        echo -e "${RED}>>> ERROR: DOWNLOAD FAILED OR SPACE FULL.${NC}"
+        echo -e "${RED}>>> ERROR: DOWNLOAD FAILED OR SPACE FULL IN RAM.${NC}"
         return
     fi
     
@@ -282,6 +286,8 @@ update_hysteria() {
     backup_binary "hysteria"
     
     echo -e "${BLUE}>>> INSTALLING...${NC}"
+    # SMART FIX: REMOVE OLD FILE FIRST TO FREE DISK SPACE
+    rm -f "$BIN_DIR/hysteria" >/dev/null 2>&1
     cp -f "$TEMP_DIR/hysteria_new" "$BIN_DIR/hysteria"
     chmod +x "$BIN_DIR/hysteria"
     
@@ -300,11 +306,13 @@ update_iran_dat() {
         mkdir -p "$GEO_DIR"
     fi
     
-    echo -e "${BLUE}>>> DOWNLOADING FROM BOOTMORTIS REPO...${NC}"
+    echo -e "${BLUE}>>> DOWNLOADING FROM BOOTMORTIS REPO TO RAM...${NC}"
     curl -L -o "$TEMP_DIR/iran.dat" "https://github.com/bootmortis/iran-hosted-domains/releases/latest/download/iran.dat"
     
     if [ -s "$TEMP_DIR/iran.dat" ]; then
         echo -e "${BLUE}>>> MOVING FILE TO $GEO_DIR...${NC}"
+        # SMART FIX: REMOVE OLD FILE FIRST
+        rm -f "$GEO_DIR/iran.dat" >/dev/null 2>&1
         mv "$TEMP_DIR/iran.dat" "$GEO_DIR/iran.dat"
         echo -e "${GREEN}>>> IRAN.DAT UPDATED SUCCESSFULLY!${NC}"
     else
@@ -327,21 +335,43 @@ ram_cleaner() {
 
 update_luci_pkg() {
     echo -e "${YELLOW}>>> CHECKING FOR LUCI UPDATES...${NC}"
+    prepare_environment
+
+    # SUPER CRITICAL FIX FOR 0KB SPACE
+    echo -e "${BLUE}>>> CLEANING LISTS...${NC}"
+    rm -rf /var/opkg-lists/* >/dev/null 2>&1
     
-    opkg update >/dev/null 2>&1
-    UPDATE_AVAIL=$(opkg list-upgradable 2>/dev/null | grep "^luci -")
+    echo -e "${BLUE}>>> UPDATING PACKAGE LISTS (IN RAM)...${NC}"
+    opkg update --tmp-dir "$TEMP_DIR" >/dev/null 2>&1
+    
+    UPDATE_AVAIL=$(opkg list-upgradable --tmp-dir "$TEMP_DIR" 2>/dev/null | grep "^luci -")
     
     if [ -n "$UPDATE_AVAIL" ]; then
         echo -e "${YELLOW}>>> UPDATE AVAILABLE: LUCI${NC}"
-        opkg upgrade luci
+        echo -e "${RED}>>> CRITICAL DISK MODE: REMOVING OLD TO INSTALL NEW...${NC}"
+        
+        # LOGIC CHANGE: REMOVE THEN INSTALL (INSTEAD OF UPGRADE)
+        # THIS BYPASSES THE "0KB AVAILABLE" ERROR
+        
+        echo -e "${BLUE}>>> STEP 1: REMOVING OLD LUCI (KEEPING CONFIG)...${NC}"
+        opkg remove luci --force-depends >/dev/null 2>&1
+        
+        echo -e "${BLUE}>>> STEP 2: INSTALLING NEW LUCI VIA RAM...${NC}"
+        opkg install luci --tmp-dir "$TEMP_DIR" --force-space --force-depends
+        
         if [ $? -eq 0 ]; then
             echo -e "${GREEN}>>> LUCI UPDATED SUCCESSFULLY!${NC}"
         else
-            echo -e "${RED}>>> ERROR: UPGRADE FAILED.${NC}"
+            echo -e "${RED}>>> ERROR: INSTALL FAILED. ATTEMPTING RETRY...${NC}"
+            opkg install luci --tmp-dir "$TEMP_DIR"
         fi
     else
         echo -e "${GREEN}>>> LUCI IS ALREADY UP TO DATE.${NC}"
     fi
+    
+    # FINAL CLEANUP
+    rm -rf /var/opkg-lists/* >/dev/null 2>&1
+    rm -rf "$TEMP_DIR/*" >/dev/null 2>&1
     pause_script
 }
 
@@ -355,8 +385,8 @@ show_main_header() {
     echo -e "${CYAN} +-------------------------------------------------------------+${NC}"
     echo -e "${CYAN} |             ${YELLOW}VIP3R OPENWRT MASTER SCRIPT${CYAN}                     |${NC}"
     echo -e "${CYAN} |                                                             |${NC}"
-    echo -e "${CYAN} |        ${GREEN}CREATOR: VIP3R${CYAN}  |  ${BLUE}TELEGRAM: T.ME/CY3ER${CYAN}             |${NC}"
-    echo -e "${CYAN} |        ${GREEN}COLLABORATOR: NIMA${CYAN}|  ${BLUE}TELEGRAM: T.ME/#${CYAN}                 |${NC}"
+    echo -e "${CYAN} |        ${GREEN}CREATOR: VIP3R${CYAN}  |  ${BLUE}TELEGRAM: T.ME/CY3ER${CYAN}              |${NC}"
+    echo -e "${CYAN} |        ${GREEN}COLLABORATOR: NIMA${CYAN}|  ${BLUE}TELEGRAM: T.ME/#${CYAN}                |${NC}"
     echo -e "${CYAN} |                                                             |${NC}"
     echo -e "${CYAN} +-------------------------------------------------------------+${NC}"
     echo ""
@@ -430,6 +460,8 @@ while true; do
             echo -e "${YELLOW}>>> UPDATING REPOS AND INSTALLING TOOLS...${NC}"
             opkg update
             opkg install curl unzip tar ca-bundle ca-certificates
+            # CLEANUP TO SAVE SPACE
+            rm -rf /var/opkg-lists/* >/dev/null 2>&1
             echo -e "${GREEN}>>> COMPLETED.${NC}"
             pause_script
             ;;
